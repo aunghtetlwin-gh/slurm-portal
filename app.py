@@ -6,7 +6,15 @@ from pathlib import Path
 import subprocess
 import requests
 import time
+from typing import Annotated
+from fastapi import Depends
 
+from auth import (
+    router as auth_router,
+    init_db,
+    get_identity,
+    require_csrf,
+)
 
 
 app = FastAPI(
@@ -15,6 +23,8 @@ app = FastAPI(
     version="0.2.0",
 )
 
+init_db()
+app.include_router(auth_router)
 
 # =========================================================
 # Configuration
@@ -78,6 +88,31 @@ class JobRequest(BaseModel):
 # =========================================================
 # JWT / authentication
 # =========================================================
+
+def require_admin(
+    identity: Annotated[dict, Depends(get_identity)]
+):
+    if identity["role"] != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Administrator access required",
+        )
+
+    return identity
+
+
+def require_admin_csrf(
+    identity: Annotated[dict, Depends(require_csrf)]
+):
+    if identity["role"] != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Administrator access required",
+        )
+
+    return identity
+
+
 
 def get_slurm_token() -> str:
     """
@@ -589,7 +624,10 @@ def root():
 # =========================================================
 
 @app.post("/jobs")
-def submit_job(job: JobRequest):
+def submit_job(
+    job: JobRequest,
+    identity: Annotated[dict, Depends(require_admin_csrf)],
+):
 
     payload = {
         "script": job.script,
@@ -698,7 +736,9 @@ def submit_job(job: JobRequest):
 # =========================================================
 
 @app.get("/jobs/active")
-def get_active_jobs():
+def get_active_jobs(
+    identity: Annotated[dict, Depends(require_admin)],
+):
 
     data = call_slurm(
         method="GET",
@@ -744,7 +784,9 @@ def get_active_jobs():
 # =========================================================
 
 @app.get("/jobs/history")
-def get_job_history():
+def get_job_history(
+    identity: Annotated[dict, Depends(require_admin)],
+):
 
     start_time = int(time.time()) - (7 * 24 * 60 * 60)
 
@@ -801,7 +843,9 @@ def get_job_history():
 # =========================================================
 
 @app.get("/ui", response_class=HTMLResponse)
-def web_ui():
+def web_ui(
+    identity: Annotated[dict, Depends(require_admin)],
+):
 
     path = Path(
         "/home/lailai/slurm-portal/frontend.html"
@@ -827,7 +871,9 @@ def web_ui():
 # =========================================================
 
 @app.get("/cluster/node")
-def get_cluster_node():
+def get_cluster_node(
+    identity: Annotated[dict, Depends(require_admin)],
+):
 
     data = call_slurm(
         method="GET",
@@ -978,7 +1024,10 @@ def get_cluster_node():
     }
 
 @app.get("/jobs/{job_id}")
-def get_job(job_id: int):
+def get_job(
+    job_id: int,
+    identity: Annotated[dict, Depends(require_admin)],
+):
 
     if job_id < 1:
         raise HTTPException(
@@ -1020,7 +1069,10 @@ def get_job(job_id: int):
 # =========================================================
 
 @app.post("/jobs/{job_id}/cancel")
-def cancel_job(job_id: int):
+def cancel_job(
+    job_id: int,
+    identity: Annotated[dict, Depends(require_admin_csrf)],
+):
 
     if job_id < 1:
         raise HTTPException(
@@ -1050,7 +1102,10 @@ def cancel_job(job_id: int):
 # =========================================================
 
 @app.post("/jobs/{job_id}/requeue")
-def requeue_job(job_id: int):
+def requeue_job(
+    job_id: int,
+    identity: Annotated[dict, Depends(require_admin_csrf)],
+):
 
     if job_id < 1:
         raise HTTPException(
@@ -1078,7 +1133,10 @@ def requeue_job(job_id: int):
 # =========================================================
 
 @app.get("/jobs/{job_id}/output")
-def get_job_output(job_id: int):
+def get_job_output(
+    job_id: int,
+    identity: Annotated[dict, Depends(require_admin)],
+):
 
     if job_id < 1:
         raise HTTPException(
